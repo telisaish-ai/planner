@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Text to List Planner — Offline</title>
+
+<!-- jsPDF for PDF export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- html2canvas for high-fidelity PDF rendering -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- Google API Client (loaded only if user clicks Save-to-Drive) -->
+
+<style>
+  :root {
+    --green: #c8e6c9; --green-deep: #4a7c59;
+    --pink: #f8bbd0; --pink-deep: #c2185b;
+    --blue: #b3e5fc; --blue-deep: #0277bd;
+    --yellow: #fff9c4; --yellow-deep: #f9a825;
+    --orange: #ffccbc; --orange-deep: #d84315;
+    --paper: #fdfdf8; --ink: #2c2c2c; --ink-soft: #555;
+    --done: #2e7d32; --pending: #ef6c00; --missed: #c62828;
+    --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    --frame: 2px solid;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px;
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    background: linear-gradient(135deg, #fdfaf3 0%, #fdf6e9 100%);
+    color: var(--ink); min-height: 100vh;
+  }
+
+  /* ─── LOGIN / DENIED SCREENS ─── */
+  .auth-screen {
+    min-height: 92vh;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .auth-card {
+    background: white;
+    border-radius: 16px;
+    padding: 40px 36px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+    max-width: 440px;
+    width: 100%;
+    text-align: center;
+  }
+  .auth-card h1 { color: var(--green-deep); margin: 0 0 8px 0; font-size: 26px; }
+  .auth-card .sub { color: var(--ink-soft); font-size: 13px; margin-bottom: 24px; }
+  .auth-card .field { text-align: left; margin-bottom: 16px; }
+  .auth-card label {
+    display: block; font-size: 12px; color: var(--ink-soft);
+    margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .auth-card input[type="email"], .auth-card input[type="password"] {
+    width: 100%; padding: 12px 14px;
+    border: 2px solid #ddd; border-radius: 8px;
+    font-size: 14px; font-family: inherit;
+    transition: border-color 0.15s;
+  }
+  .auth-card input:focus { outline: none; border-color: var(--green-deep); }
+  .auth-card .btn-login {
+    width: 100%; padding: 12px;
+    background: var(--green-deep); color: white;
+    border: none; border-radius: 8px;
+    font-size: 14px; font-weight: 700;
+    cursor: pointer; margin-top: 8px;
+    transition: all 0.15s;
+  }
+  .auth-card .btn-login:hover { background: #3a6648; transform: translateY(-1px); }
+  .auth-card .err {
+    background: #ffebee;
+    border-left: 4px solid var(--missed);
+    color: var(--missed);
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    margin-bottom: 16px;
+    text-align: left;
+    display: none;
+  }
+  .auth-card .err.show { display: block; }
+  .auth-card .hint {
+    font-size: 11px; color: var(--ink-soft);
+    margin-top: 16px; padding: 10px;
+    background: #fffde7; border-radius: 6px;
+    border-left: 3px solid var(--yellow-deep);
+  }
+  .denied-card {
+    border-top: 6px solid var(--missed);
+  }
+  .denied-card h1 { color: var(--missed); }
+  .denied-card .icon { font-size: 60px; margin-bottom: 8px; }
+
+  /* ─── PLANNER ─── */
+  .toolbar {
+    max-width: 1280px; margin: 0 auto 14px auto;
+    display: flex; justify-content: space-between; align-items: center;
+    background: white; padding: 10px 16px; border-radius: 8px;
+    box-shadow: var(--shadow); flex-wrap: wrap; gap: 8px;
+  }
+  .user-badge { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .user-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--green-deep); color: white;
+    display: flex; align-items: center; justify-content: center; font-weight: bold;
+  }
+  .role-chip {
+    background: var(--pink); color: var(--pink-deep); padding: 2px 8px;
+    border-radius: 10px; font-size: 11px; font-weight: bold; text-transform: uppercase;
+  }
+  .role-chip.admin { background: var(--green); color: var(--green-deep); }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn {
+    padding: 7px 12px; border: none; border-radius: 6px;
+    cursor: pointer; font-weight: 600; font-size: 12px;
+    transition: all 0.2s;
+  }
+  .btn:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+  .btn-primary { background: var(--green-deep); color: white; }
+  .btn-secondary { background: var(--blue-deep); color: white; }
+  .btn-warning { background: var(--pending); color: white; }
+  .btn-ghost { background: #f0f0f0; color: var(--ink); }
+  .btn-danger { background: var(--missed); color: white; }
+  .save-status {
+    font-size: 11px; color: var(--ink-soft);
+    padding: 4px 10px; background: #f0f0f0; border-radius: 12px;
+  }
+  .save-status.saved { background: #e8f5e9; color: var(--done); }
+  .save-status.saving { background: #fff3e0; color: var(--pending); }
+  .save-status.error { background: #ffebee; color: var(--missed); }
+
+  .planner {
+    max-width: 1280px; margin: 0 auto;
+    background: var(--paper); border-radius: 12px;
+    padding: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+  }
+  .header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    border-bottom: 3px dashed #ddd; padding-bottom: 12px; margin-bottom: 16px;
+  }
+  .title { font-size: 28px; font-weight: 800; line-height: 1.1; }
+  .subtitle { color: var(--ink-soft); font-size: 12px; margin-top: 4px; }
+  .date-input {
+    background: var(--green); padding: 7px 12px; border-radius: 6px;
+    font-weight: 700; border: var(--frame) var(--green-deep);
+    font-size: 13px; font-family: inherit;
+  }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .col { display: flex; flex-direction: column; gap: 12px; }
+  .card {
+    border-radius: 8px; padding: 12px 14px;
+    box-shadow: var(--shadow); border: var(--frame); background: var(--paper);
+  }
+  .card h3 {
+    margin: 0 0 8px 0; font-size: 13px;
+    text-transform: uppercase; letter-spacing: 1px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .card h3 .add-row {
+    background: none; border: 1px solid currentColor;
+    border-radius: 50%; width: 22px; height: 22px;
+    cursor: pointer; font-weight: bold; font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+    color: inherit;
+  }
+  .card.green { border-color: var(--green-deep); }
+  .card.green h3 { color: var(--green-deep); }
+  .card.pink { border-color: var(--pink-deep); }
+  .card.pink h3 { color: var(--pink-deep); }
+  .card.blue { border-color: var(--blue-deep); }
+  .card.blue h3 { color: var(--blue-deep); }
+  .card.yellow { border-color: var(--yellow-deep); }
+  .card.yellow h3 { color: var(--yellow-deep); }
+  .card.orange { border-color: var(--orange-deep); }
+  .card.orange h3 { color: var(--orange-deep); }
+
+  .item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px; font-size: 13px;
+    border-bottom: 1px dotted #eee;
+  }
+  .item:last-child { border-bottom: none; }
+  .status-btn {
+    flex-shrink: 0; width: 24px; height: 24px;
+    border-radius: 4px; border: 2px solid #ccc; background: white;
+    cursor: pointer; font-weight: bold; font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .status-btn[data-status="done"] { background: var(--done); color: white; border-color: var(--done); }
+  .status-btn[data-status="miss"] { background: var(--missed); color: white; border-color: var(--missed); }
+  .status-btn[data-status="pend"] { background: white; color: var(--pending); border-color: var(--pending); }
+  .status-btn[data-status="move"] { background: var(--pending); color: white; border-color: var(--pending); }
+
+  .editable {
+    flex: 1; padding: 4px 8px; border-radius: 4px;
+    cursor: text; min-height: 24px;
+    border: 1px solid transparent;
+    font-size: 13px; font-family: inherit; background: transparent;
+  }
+  .editable:hover { background: #fafafa; border-color: #eee; }
+  .editable:focus { background: white; border-color: var(--blue-deep); outline: none; box-shadow: 0 0 0 2px rgba(2,119,189,0.15); }
+  .editable[data-status="done"] { color: var(--ink-soft); text-decoration: line-through; }
+  .editable[data-status="miss"] { color: var(--missed); }
+  .editable[data-status="pend"] { color: var(--pending); }
+
+  .priority-tag {
+    display: inline-block; border-radius: 50%;
+    width: 24px; height: 24px; text-align: center; line-height: 24px;
+    font-weight: 800; font-size: 11px; flex-shrink: 0;
+  }
+  .ptag-A { background: var(--green); color: var(--green-deep); }
+  .ptag-B { background: var(--pink); color: var(--pink-deep); }
+  .ptag-C { background: var(--blue); color: var(--blue-deep); }
+
+  .delete-btn {
+    background: none; border: none; color: #ccc;
+    cursor: pointer; padding: 0 4px; font-size: 16px;
+  }
+  .delete-btn:hover { color: var(--missed); }
+
+  .schedule-grid {
+    display: grid; grid-template-columns: 60px 1fr 28px 28px;
+    column-gap: 6px; row-gap: 4px; font-size: 12px; align-items: center;
+  }
+  .schedule-grid .time { color: var(--ink-soft); font-weight: 600; }
+
+  .meals { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .meal { padding: 8px 10px; border-radius: 6px; font-size: 12px; }
+  .meal-name { font-weight: bold; font-size: 10px; text-transform: uppercase; opacity: 0.7; margin-bottom: 4px; }
+  .meal.b { background: var(--green); color: var(--green-deep); }
+  .meal.l { background: var(--pink); color: var(--pink-deep); }
+  .meal.s { background: var(--blue); color: var(--blue-deep); }
+  .meal.d { background: var(--yellow); color: var(--yellow-deep); }
+  .meal .editable { color: inherit; }
+
+  .lifebal { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; font-size: 12px; }
+  .lb-col { padding: 8px; border-radius: 6px; background: #fafafa; }
+  .lb-col h4 { margin: 0 0 6px 0; font-size: 11px; text-transform: uppercase; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat { text-align: center; padding: 8px; border-radius: 6px; background: #fafafa; }
+  .stat-label { font-size: 10px; color: var(--ink-soft); text-transform: uppercase; }
+  .rating-stars { font-size: 18px; cursor: pointer; user-select: none; margin: 4px 0; }
+  .rating-stars span { cursor: pointer; padding: 0 1px; }
+  .water-drops { font-size: 18px; letter-spacing: 4px; cursor: pointer; user-select: none; }
+
+  .expense-total { border-top: 2px solid var(--blue-deep); margin-top: 8px; padding-top: 8px; display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; }
+  .amt-input { border: none; background: transparent; text-align: right; width: 70px; font-family: inherit; font-weight: 600; font-size: 12px; }
+  .amt-input:focus { outline: 1px solid var(--blue-deep); border-radius: 4px; }
+
+  .reflect-good, .reflect-bad {
+    padding: 8px 12px; border-radius: 6px; font-size: 12px; margin: 6px 0;
+  }
+  .reflect-good { background: #e8f5e9; border-left: 4px solid var(--done); }
+  .reflect-bad { background: #ffebee; border-left: 4px solid var(--missed); }
+
+  .footer {
+    text-align: center; color: var(--ink-soft); font-size: 11px;
+    padding-top: 16px; margin-top: 16px; border-top: 1px dashed #ddd;
+  }
+
+  /* Modal */
+  .modal-backdrop {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5); z-index: 1000;
+    align-items: center; justify-content: center;
+  }
+  .modal-backdrop.active { display: flex; }
+  .modal {
+    background: white; border-radius: 12px; padding: 24px;
+    max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;
+  }
+  .modal h2 { margin-top: 0; color: var(--green-deep); }
+
+  @media (max-width: 768px) {
+    .grid { grid-template-columns: 1fr; }
+    .meals { grid-template-columns: 1fr; }
+  }
+
+  /* Hide planner until logged in */
+  #planner-app { display: none; }
+</style>
+</head>
+<body>
+
+<!-- ════════════════ LOGIN SCREEN ════════════════ -->
+<div id="login-screen" class="auth-screen">
+  <div class="auth-card">
+    <h1>📓 Daily Planner</h1>
+    <div class="sub">Text to List Planner — Offline Edition</div>
+    <div class="err" id="login-err">⚠️ Email not on the allowlist. Access denied.</div>
+    <div class="field">
+      <label for="login-email">Email Address</label>
+      <input type="email" id="login-email" placeholder="your.email@gmail.com" autocomplete="off" autofocus>
+    </div>
+    <button class="btn-login" onclick="checkLogin()">Continue →</button>
+    <div class="hint">
+      🔒 <strong>Offline mode</strong> — your email is checked against a local allowlist; no data is sent anywhere. Press Enter to submit.
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ PASSWORD SCREEN (UI flow only) ════════════════ -->
+<div id="password-screen" class="auth-screen" style="display:none;">
+  <div class="auth-card">
+    <h1>🔑 Enter Password</h1>
+    <div class="sub">Welcome back, <strong id="pw-email">—</strong></div>
+    <div class="field">
+      <label for="login-pw">Password</label>
+      <input type="password" id="login-pw" placeholder="Enter any password to continue" autocomplete="off" autofocus>
+    </div>
+    <button class="btn-login" onclick="checkPassword()">Sign In →</button>
+    <button class="btn-login" style="background:#bbb; margin-top:8px;" onclick="goBackToLogin()">← Back</button>
+    <div class="hint">
+      ⚠️ <strong>Local-only mode:</strong> This password screen is for UI flow only — no real authentication is performed. Anything you type will work. Real Google OAuth is available via the "Save to Drive" button after sign-in.
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ ACCESS DENIED SCREEN ════════════════ -->
+<div id="denied-screen" class="auth-screen" style="display:none;">
+  <div class="auth-card denied-card">
+    <div class="icon">🚫</div>
+    <h1>Access Denied</h1>
+    <div class="sub">The email you entered is not on the allowlist.</div>
+    <div style="background:#f5f5f5; padding:10px; border-radius:6px; font-family:monospace; font-size:12px; margin:12px 0; word-break:break-all;" id="denied-email">—</div>
+    <button class="btn-login" onclick="goBackToLogin()">← Try Again</button>
+    <div class="hint" style="text-align:left;">
+      <strong>Allowed emails:</strong>
+      <ul style="margin:6px 0 0 0; padding-left:20px;">
+        <li>saishanker.sitm@gmail.com</li>
+        <li>telisaish@gmail.com</li>
+        <li>shraddha.slb@gmail.com</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ PLANNER APP ════════════════ -->
+<div id="planner-app">
+
+  <div class="toolbar">
+    <div class="user-badge">
+      <div class="user-avatar" id="user-avatar">?</div>
+      <div>
+        <div style="font-weight:600;" id="user-name">—</div>
+        <div style="font-size:11px; color:var(--ink-soft);" id="user-email">—</div>
+      </div>
+      <span class="role-chip" id="user-role">user</span>
+    </div>
+    <span id="save-status" class="save-status saved">✓ Saved</span>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="exportBoth()">📥 Export JSON + PDF</button>
+      <button class="btn btn-secondary" onclick="saveToGoogleDrive()">☁️ Save to Drive</button>
+      <button class="btn btn-ghost" onclick="importJSON()">📂 Import</button>
+      <button class="btn btn-ghost" onclick="resetPlanner()">↻ Reset</button>
+      <button class="btn btn-danger" onclick="logout()">⎋ Logout</button>
+      <input type="file" id="file-input" accept=".json" style="display:none" onchange="handleImport(event)">
+    </div>
+  </div>
+
+  <div class="planner" id="planner-content">
+    <div class="header">
+      <div>
+        <div class="title">📓 Daily Planner</div>
+        <div class="subtitle">Click anything to edit · auto-saves to your private local copy</div>
+      </div>
+      <div style="text-align:right;">
+        <input type="date" class="date-input" id="planner-date">
+        <div style="font-size:10px; color:var(--ink-soft); margin-top:4px;">Each date is a separate planner</div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="col">
+        <div class="card green"><h3>🎯 Top Priorities <button class="add-row" onclick="addItem('priorities')">+</button></h3><div id="priorities"></div></div>
+        <div class="card pink"><h3>📅 Appointments <button class="add-row" onclick="addItem('appointments')">+</button></h3><div id="appointments"></div></div>
+        <div class="card yellow"><h3>👤 Personal To-Do <button class="add-row" onclick="addItem('personal')">+</button></h3><div id="personal"></div></div>
+        <div class="card blue"><h3>📝 To Do List <button class="add-row" onclick="addItem('todo')">+</button></h3><div id="todo"></div></div>
+        <div class="card green"><h3>🍱 Meals</h3>
+          <div class="meals">
+            <div class="meal b"><div class="meal-name">🍳 Breakfast</div><div class="editable" data-field="meal-b" contenteditable="true"></div></div>
+            <div class="meal l"><div class="meal-name">🍛 Lunch</div><div class="editable" data-field="meal-l" contenteditable="true"></div></div>
+            <div class="meal s"><div class="meal-name">🥚 Snacks</div><div class="editable" data-field="meal-s" contenteditable="true"></div></div>
+            <div class="meal d"><div class="meal-name">🍱 Dinner</div><div class="editable" data-field="meal-d" contenteditable="true"></div></div>
+          </div>
+        </div>
+        <div class="card pink"><h3>⚖️ Life Balance</h3>
+          <div class="lifebal">
+            <div class="lb-col"><h4 style="color:var(--missed)">❤️ Health & Fitness</h4><div id="lb-hf"></div><button class="add-row" style="font-size:11px; color:var(--missed); border:none; background:none; cursor:pointer; margin-top:4px;" onclick="addLifebalItem('lb-hf')">+ add</button></div>
+            <div class="lb-col"><h4 style="color:var(--blue-deep)">👨‍👩‍👧 Family & Friends</h4><div id="lb-ff"></div><button class="add-row" style="font-size:11px; color:var(--blue-deep); border:none; background:none; cursor:pointer; margin-top:4px;" onclick="addLifebalItem('lb-ff')">+ add</button></div>
+            <div class="lb-col"><h4 style="color:var(--green-deep)">🎨 Fun & Creation</h4><div id="lb-fc"></div><button class="add-row" style="font-size:11px; color:var(--green-deep); border:none; background:none; cursor:pointer; margin-top:4px;" onclick="addLifebalItem('lb-fc')">+ add</button></div>
+            <div class="lb-col"><h4 style="color:var(--pink-deep)">🕉️ Spiritual</h4><div id="lb-sp"></div><button class="add-row" style="font-size:11px; color:var(--pink-deep); border:none; background:none; cursor:pointer; margin-top:4px;" onclick="addLifebalItem('lb-sp')">+ add</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="card orange"><h3>🕒 Daily Schedule</h3><div class="schedule-grid" id="schedule"></div></div>
+        <div class="card blue"><h3>💧 Water Tracker</h3><div class="water-drops" id="water-drops" style="text-align:center;"></div><div style="text-align:center; font-size:11px; color:var(--ink-soft); margin-top:4px;" id="water-count"></div></div>
+        <div class="card yellow"><h3>📞 Calls / Email / Text <button class="add-row" onclick="addItem('calls')">+</button></h3><div id="calls"></div></div>
+        <div class="card green"><h3>📔 Reflections</h3>
+          <div class="reflect-good"><strong>✅ GOOD →</strong> <span class="editable" data-field="went-good" contenteditable="true"></span></div>
+          <div class="reflect-bad"><strong>❌ BAD →</strong> <span class="editable" data-field="went-bad" contenteditable="true"></span></div>
+        </div>
+        <div class="card blue"><h3>📌 Notes for Tomorrow <button class="add-row" onclick="addItem('tomorrow')">+</button></h3><div id="tomorrow"></div></div>
+        <div class="card blue"><h3>💰 Expenses <button class="add-row" onclick="addExpense()">+</button></h3><div id="expenses"></div><div class="expense-total"><span>Total:</span><span>₹ <span id="total-spend">0</span></span></div></div>
+        <div class="card orange"><h3>⭐ Rate Your Day</h3>
+          <div class="stats">
+            <div class="stat"><div class="stat-label">Productivity</div><div class="rating-stars" data-field="rating-prod" data-emoji="⭐"></div></div>
+            <div class="stat"><div class="stat-label">Mood</div><div class="rating-stars" data-field="rating-mood" data-emoji="😊"></div></div>
+            <div class="stat"><div class="stat-label">Health</div><div class="rating-stars" data-field="rating-health" data-emoji="❤️"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      📓 Offline planner · Stored locally in your browser · Export to keep a permanent copy
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-backdrop" id="modal">
+  <div class="modal">
+    <h2 id="modal-title"></h2>
+    <div id="modal-body"></div>
+    <div style="text-align:right; margin-top:16px;">
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// CONFIG — Allowlist with text-match-only login
+// ═══════════════════════════════════════════════════════════════
+const ALLOWLIST = {
+  'saishanker.sitm@gmail.com': { id: 'sai',      name: 'Sai',      role: 'admin' },
+  'telisaish@gmail.com':       { id: 'sai',      name: 'Sai',      role: 'admin' },
+  'shraddha.slb@gmail.com':    { id: 'shraddha', name: 'Shraddha', role: 'editor' }
+};
+
+const STATUS_CYCLE = ['pend', 'done', 'miss', 'move'];
+const STATUS_ICON = { done: '✓', miss: '✗', pend: '○', move: '→' };
+
+// Blank planner template
+const BLANK_DATA = {
+  date: new Date().toISOString().slice(0, 10),
+  priorities: [
+    { id: 'p1', tag: 'A', text: '', status: 'pend' },
+    { id: 'p2', tag: 'B', text: '', status: 'pend' },
+    { id: 'p3', tag: 'C', text: '', status: 'pend' }
+  ],
+  appointments: [
+    { id: 'a1', text: 'I · ', status: 'pend' },
+    { id: 'a2', text: 'II · ', status: 'pend' },
+    { id: 'a3', text: 'III · ', status: 'pend' }
+  ],
+  personal: [{ id: 'pe1', text: '', status: 'pend' }],
+  todo: [
+    { id: 't1', tag: 'A1', text: '', status: 'pend' },
+    { id: 't2', tag: 'A2', text: '', status: 'pend' },
+    { id: 't3', tag: 'B1', text: '', status: 'pend' },
+    { id: 't4', tag: 'B2', text: '', status: 'pend' },
+    { id: 't5', tag: 'C1', text: '', status: 'pend' },
+    { id: 't6', tag: 'C2', text: '', status: 'pend' }
+  ],
+  schedule: (() => {
+    const out = [];
+    for (let h = 6; h <= 23; h++) out.push({ time: h + ':00', text: '', status: 'pend' });
+    return out;
+  })(),
+  meals: { 'meal-b': '', 'meal-l': '', 'meal-s': '', 'meal-d': '' },
+  lifebal: {
+    'lb-hf': [
+      { text: 'ST (Stretching)', status: 'pend' },
+      { text: 'Wlk (Walk)', status: 'pend' },
+      { text: 'Wts (Weights)', status: 'pend' },
+      { text: 'Med (Meditation)', status: 'pend' }
+    ],
+    'lb-ff': [],
+    'lb-fc': [],
+    'lb-sp': [{ text: 'Meditation', status: 'pend' }]
+  },
+  calls: [{ id: 'c1', text: '', status: 'pend' }],
+  tomorrow: [{ id: 'tm1', text: '', status: 'pend' }],
+  reflections: { 'went-good': '', 'went-bad': '' },
+  expenses: [],
+  ratings: { 'rating-prod': 0, 'rating-mood': 0, 'rating-health': 0 },
+  water: 0
+};
+
+// State
+let currentEmail = null;
+let currentUser = null;
+let data = JSON.parse(JSON.stringify(BLANK_DATA));
+
+// ═══════════════════════════════════════════════════════════════
+// AUTH FLOW
+// ═══════════════════════════════════════════════════════════════
+function checkLogin() {
+  const input = document.getElementById('login-email').value.trim().toLowerCase();
+  const errEl = document.getElementById('login-err');
+  errEl.classList.remove('show');
+
+  if (!input) {
+    errEl.textContent = '⚠️ Please enter an email address.';
+    errEl.classList.add('show');
+    return;
+  }
+
+  if (ALLOWLIST[input]) {
+    // Match → show password screen
+    currentEmail = input;
+    document.getElementById('pw-email').textContent = input;
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('password-screen').style.display = 'flex';
+    setTimeout(() => document.getElementById('login-pw').focus(), 100);
+  } else {
+    // No match → denied screen
+    document.getElementById('denied-email').textContent = input;
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('denied-screen').style.display = 'flex';
+  }
+}
+
+function checkPassword() {
+  // UI-only flow — accept anything
+  const pw = document.getElementById('login-pw').value;
+  if (!pw) {
+    alert('Please enter any password (this is UI-only, anything works).');
+    return;
+  }
+  // Proceed to planner
+  loginSuccess();
+}
+
+function loginSuccess() {
+  currentUser = ALLOWLIST[currentEmail];
+  // Render badges
+  document.getElementById('user-avatar').textContent = currentUser.name[0].toUpperCase();
+  document.getElementById('user-name').textContent = currentUser.name;
+  document.getElementById('user-email').textContent = currentEmail;
+  const roleChip = document.getElementById('user-role');
+  roleChip.textContent = currentUser.role;
+  if (currentUser.role === 'admin') roleChip.classList.add('admin');
+  else roleChip.classList.remove('admin');
+
+  // Hide auth screens, show planner
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('password-screen').style.display = 'none';
+  document.getElementById('denied-screen').style.display = 'none';
+  document.getElementById('planner-app').style.display = 'block';
+
+  // Persist session so reload doesn't ask again until logout
+  try { sessionStorage.setItem('planner_session', currentEmail); } catch(e) {}
+
+  // Load this user's data
+  loadFromLocalStorage();
+  render();
+}
+
+function goBackToLogin() {
+  currentEmail = null;
+  document.getElementById('login-email').value = '';
+  document.getElementById('login-pw').value = '';
+  document.getElementById('login-err').classList.remove('show');
+  document.getElementById('password-screen').style.display = 'none';
+  document.getElementById('denied-screen').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  setTimeout(() => document.getElementById('login-email').focus(), 100);
+}
+
+function logout() {
+  if (!confirm('Log out? Your data is saved locally and will be here when you log back in.')) return;
+  try { sessionStorage.removeItem('planner_session'); } catch(e) {}
+  currentEmail = null; currentUser = null;
+  document.getElementById('planner-app').style.display = 'none';
+  goBackToLogin();
+}
+
+// Enter-key support
+document.getElementById('login-email').addEventListener('keydown', e => { if (e.key === 'Enter') checkLogin(); });
+document.getElementById('login-pw').addEventListener('keydown', e => { if (e.key === 'Enter') checkPassword(); });
+
+// ═══════════════════════════════════════════════════════════════
+// LOCALSTORAGE — keyed per-user, per-date
+// ═══════════════════════════════════════════════════════════════
+function storageKey() {
+  return `planner__${currentUser.id}__${data.date}`;
+}
+
+function saveToLocalStorage() {
+  setSaveStatus('saving');
+  try {
+    localStorage.setItem(storageKey(), JSON.stringify(data));
+    setTimeout(() => setSaveStatus('saved'), 200);
+  } catch(e) {
+    console.error('Save failed', e);
+    setSaveStatus('error');
+  }
+}
+
+function loadFromLocalStorage() {
+  try {
+    const raw = localStorage.getItem(storageKey());
+    if (raw) {
+      data = JSON.parse(raw);
+      // Backward-compat: ensure all blank fields exist
+      Object.keys(BLANK_DATA).forEach(k => {
+        if (data[k] === undefined) data[k] = JSON.parse(JSON.stringify(BLANK_DATA[k]));
+      });
+    } else {
+      // No saved data for this user/date — use blank
+      data = JSON.parse(JSON.stringify(BLANK_DATA));
+      data.date = document.getElementById('planner-date').value || new Date().toISOString().slice(0, 10);
+    }
+  } catch(e) {
+    console.warn('Load failed, using blank', e);
+    data = JSON.parse(JSON.stringify(BLANK_DATA));
+  }
+}
+
+function setSaveStatus(s) {
+  const el = document.getElementById('save-status');
+  el.className = 'save-status ' + s;
+  el.textContent = s === 'saved' ? '✓ Saved' : s === 'saving' ? '⏳ Saving...' : '⚠️ Error';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RENDERING
+// ═══════════════════════════════════════════════════════════════
+function render() {
+  document.getElementById('planner-date').value = data.date;
+  renderItems('priorities', data.priorities, true);
+  renderItems('appointments', data.appointments, false);
+  renderItems('personal', data.personal, false);
+  renderItems('todo', data.todo, true);
+  renderItems('calls', data.calls, false);
+  renderItems('tomorrow', data.tomorrow, false);
+  renderSchedule();
+  renderMeals();
+  renderLifebal();
+  renderReflections();
+  renderExpenses();
+  renderRatings();
+  renderWater();
+}
+
+function renderItems(id, items, hasTag) {
+  const c = document.getElementById(id);
+  c.innerHTML = '';
+  items.forEach((item, idx) => {
+    const row = document.createElement('div');
+    row.className = 'item';
+    const tagHtml = hasTag && item.tag ? `<span class="priority-tag ptag-${item.tag[0]}">${item.tag}</span>` : '';
+    row.innerHTML = `
+      <button class="status-btn" data-status="${item.status}" onclick="cycleStatus('${id}', ${idx})">${STATUS_ICON[item.status]}</button>
+      ${tagHtml}
+      <span class="editable" data-status="${item.status}" contenteditable="true" onblur="updateItem('${id}', ${idx}, this.innerText)">${escapeHtml(item.text)}</span>
+      <button class="delete-btn" onclick="deleteItem('${id}', ${idx})">×</button>`;
+    c.appendChild(row);
+  });
+}
+
+function renderSchedule() {
+  const c = document.getElementById('schedule');
+  c.innerHTML = '';
+  data.schedule.forEach((slot, idx) => {
+    const time = document.createElement('div'); time.className = 'time'; time.textContent = slot.time;
+    const task = document.createElement('div'); task.className = 'editable';
+    task.contentEditable = 'true'; task.dataset.status = slot.status; task.textContent = slot.text;
+    task.onblur = () => { data.schedule[idx].text = task.textContent; saveToLocalStorage(); };
+    const btn = document.createElement('button'); btn.className = 'status-btn';
+    btn.dataset.status = slot.status; btn.textContent = STATUS_ICON[slot.status];
+    btn.onclick = () => cycleScheduleStatus(idx);
+    const del = document.createElement('button'); del.className = 'delete-btn'; del.textContent = '×';
+    del.onclick = () => { data.schedule.splice(idx, 1); saveToLocalStorage(); render(); };
+    c.append(time, task, btn, del);
+  });
+}
+
+function renderMeals() {
+  Object.keys(data.meals).forEach(k => {
+    const el = document.querySelector(`[data-field="${k}"]`);
+    if (el) { el.textContent = data.meals[k]; el.onblur = () => { data.meals[k] = el.textContent; saveToLocalStorage(); }; }
+  });
+}
+
+function renderLifebal() {
+  Object.keys(data.lifebal).forEach(colId => {
+    const c = document.getElementById(colId);
+    c.innerHTML = '';
+    data.lifebal[colId].forEach((item, idx) => {
+      const row = document.createElement('div'); row.className = 'item';
+      row.innerHTML = `
+        <button class="status-btn" data-status="${item.status}" onclick="cycleLifebalStatus('${colId}', ${idx})" style="width:20px;height:20px;font-size:10px;">${STATUS_ICON[item.status]}</button>
+        <span class="editable" data-status="${item.status}" contenteditable="true" onblur="updateLifebal('${colId}', ${idx}, this.innerText)" style="font-size:12px;">${escapeHtml(item.text)}</span>
+        <button class="delete-btn" onclick="deleteLifebal('${colId}', ${idx})">×</button>`;
+      c.appendChild(row);
+    });
+  });
+}
+
+function renderReflections() {
+  Object.keys(data.reflections).forEach(k => {
+    const el = document.querySelector(`[data-field="${k}"]`);
+    if (el) { el.textContent = data.reflections[k]; el.onblur = () => { data.reflections[k] = el.textContent; saveToLocalStorage(); }; }
+  });
+}
+
+function renderExpenses() {
+  const c = document.getElementById('expenses');
+  c.innerHTML = '';
+  let total = 0;
+  data.expenses.forEach((exp, idx) => {
+    total += +exp.amount || 0;
+    const row = document.createElement('div'); row.className = 'item';
+    row.innerHTML = `
+      <span style="color:var(--ink-soft); font-weight:600; min-width:18px; font-size:12px;">${idx + 1}.</span>
+      <span class="editable" contenteditable="true" onblur="updateExpense(${idx}, 'text', this.innerText)" style="flex:1; font-size:12px;">${escapeHtml(exp.text)}</span>
+      <input type="number" class="amt-input" value="${exp.amount}" onchange="updateExpense(${idx}, 'amount', parseFloat(this.value)||0)">
+      <button class="delete-btn" onclick="deleteExpense(${idx})">×</button>`;
+    c.appendChild(row);
+  });
+  document.getElementById('total-spend').textContent = total.toLocaleString('en-IN');
+}
+
+function renderRatings() {
+  document.querySelectorAll('.rating-stars').forEach(el => {
+    const field = el.dataset.field, emoji = el.dataset.emoji;
+    const value = data.ratings[field] || 0;
+    el.innerHTML = '';
+    for (let i = 1; i <= 5; i++) {
+      const s = document.createElement('span');
+      s.textContent = i <= value ? emoji : '☆';
+      s.style.opacity = i <= value ? '1' : '0.3';
+      s.onclick = () => { data.ratings[field] = (value === i) ? 0 : i; saveToLocalStorage(); render(); };
+      el.appendChild(s);
+    }
+  });
+}
+
+function renderWater() {
+  const c = document.getElementById('water-drops'); c.innerHTML = '';
+  for (let i = 1; i <= 8; i++) {
+    const s = document.createElement('span');
+    s.textContent = i <= data.water ? '💧' : '○';
+    s.style.opacity = i <= data.water ? '1' : '0.4';
+    s.onclick = () => { data.water = (data.water === i) ? 0 : i; saveToLocalStorage(); render(); };
+    c.appendChild(s);
+  }
+  document.getElementById('water-count').textContent = `${data.water} / 8 glasses`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INTERACTIONS
+// ═══════════════════════════════════════════════════════════════
+function cycleStatus(id, idx) {
+  const cur = data[id][idx].status;
+  data[id][idx].status = STATUS_CYCLE[(STATUS_CYCLE.indexOf(cur) + 1) % STATUS_CYCLE.length];
+  saveToLocalStorage(); render();
+}
+function cycleScheduleStatus(idx) {
+  const cur = data.schedule[idx].status;
+  data.schedule[idx].status = STATUS_CYCLE[(STATUS_CYCLE.indexOf(cur) + 1) % STATUS_CYCLE.length];
+  saveToLocalStorage(); render();
+}
+function cycleLifebalStatus(colId, idx) {
+  const cur = data.lifebal[colId][idx].status;
+  data.lifebal[colId][idx].status = STATUS_CYCLE[(STATUS_CYCLE.indexOf(cur) + 1) % STATUS_CYCLE.length];
+  saveToLocalStorage(); render();
+}
+function updateItem(id, idx, text) { data[id][idx].text = text; saveToLocalStorage(); }
+function updateLifebal(colId, idx, text) { data.lifebal[colId][idx].text = text; saveToLocalStorage(); }
+function updateExpense(idx, field, val) { data.expenses[idx][field] = val; saveToLocalStorage(); render(); }
+function deleteItem(id, idx) { data[id].splice(idx, 1); saveToLocalStorage(); render(); }
+function deleteLifebal(colId, idx) { data.lifebal[colId].splice(idx, 1); saveToLocalStorage(); render(); }
+function deleteExpense(idx) { data.expenses.splice(idx, 1); saveToLocalStorage(); render(); }
+function addItem(id) {
+  const newItem = { id: id[0] + Date.now(), text: 'New item', status: 'pend' };
+  if (id === 'priorities' || id === 'todo') newItem.tag = '';
+  data[id].push(newItem); saveToLocalStorage(); render();
+}
+function addLifebalItem(colId) { data.lifebal[colId].push({ text: 'New', status: 'pend' }); saveToLocalStorage(); render(); }
+function addExpense() { data.expenses.push({ id: 'e' + Date.now(), text: 'New expense', amount: 0 }); saveToLocalStorage(); render(); }
+
+document.getElementById('planner-date').addEventListener('change', e => {
+  data.date = e.target.value;
+  loadFromLocalStorage(); // load whatever was saved for the new date (or blank)
+  data.date = e.target.value; // ensure date stays
+  saveToLocalStorage();
+  render();
+});
+
+// ═══════════════════════════════════════════════════════════════
+// EXPORT — JSON + PDF together with DD-MM-YY_Sai_Plan filename
+// ═══════════════════════════════════════════════════════════════
+function getExportFilename() {
+  const [y, m, d] = data.date.split('-');
+  const dd = d, mm = m, yy = y.slice(-2);
+  // Map user_id back to display name
+  const tag = currentUser.id === 'sai' ? 'Sai' : currentUser.name;
+  return `${dd}-${mm}-${yy}_${tag}_Plan`;
+}
+
+function exportJSON() {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = getExportFilename() + '.json';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function exportPDF() {
+  const target = document.getElementById('planner-content');
+  // Use html2canvas to capture, then jsPDF to build the file
+  const canvas = await html2canvas(target, { scale: 2, backgroundColor: '#fdfdf8', useCORS: true });
+  const imgData = canvas.toDataURL('image/png');
+  const { jsPDF } = window.jspdf;
+  // Calculate aspect ratio for A4
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const imgW = pageW - 10;
+  const imgH = (canvas.height * imgW) / canvas.width;
+  let heightLeft = imgH;
+  let position = 5;
+
+  // First page
+  pdf.addImage(imgData, 'PNG', 5, position, imgW, imgH);
+  heightLeft -= (pageH - 10);
+
+  // Add subsequent pages if content overflows
+  while (heightLeft > 0) {
+    position = heightLeft - imgH + 5;
+    pdf.addPage();
+    pdf.addImage(imgData, 'PNG', 5, position, imgW, imgH);
+    heightLeft -= (pageH - 10);
+  }
+
+  pdf.save(getExportFilename() + '.pdf');
+}
+
+async function exportBoth() {
+  exportJSON();
+  showModal('📥 Generating PDF...', '<p>The PDF is being rendered. This usually takes 2–3 seconds.</p><p style="font-size:12px; color:#888;">After this, both <strong>JSON</strong> and <strong>PDF</strong> will be in your browser\'s Downloads folder.</p>');
+  try {
+    await exportPDF();
+    closeModal();
+    showModal('✅ Export Complete', `
+      <p><strong>Two files just downloaded:</strong></p>
+      <ul style="font-size:13px;">
+        <li>📄 <code>${getExportFilename()}.json</code> — for re-importing later</li>
+        <li>📄 <code>${getExportFilename()}.pdf</code> — for archiving or sharing</li>
+      </ul>
+      <p style="font-size:12px; color:#888; margin-top:12px;">Find them in your <strong>Downloads</strong> folder. Drag them into Google Drive if you want a cloud backup.</p>
+    `);
+  } catch(e) {
+    closeModal();
+    alert('PDF export failed: ' + e.message);
+    console.error(e);
+  }
+}
+
+function importJSON() { document.getElementById('file-input').click(); }
+function handleImport(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try { data = JSON.parse(ev.target.result); saveToLocalStorage(); render(); alert('Imported successfully!'); }
+    catch(err) { alert('Invalid JSON file'); }
+  };
+  reader.readAsText(file);
+}
+
+function resetPlanner() {
+  if (!confirm('Reset this date\'s planner to blank? This cannot be undone.')) return;
+  const dateBackup = data.date;
+  data = JSON.parse(JSON.stringify(BLANK_DATA));
+  data.date = dateBackup;
+  saveToLocalStorage(); render();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SAVE TO GOOGLE DRIVE — graceful "needs setup" message
+// ═══════════════════════════════════════════════════════════════
+function saveToGoogleDrive() {
+  showModal('☁️ Save to Google Drive', `
+    <p>Direct Google Drive uploads from a local HTML file require <strong>OAuth Client ID setup</strong> (a one-time, free, ~5-minute process in Google Cloud Console).</p>
+    <p style="font-size:13px; color:#666;">Until that's done, here's the workaround:</p>
+    <ol style="font-size:13px; line-height:1.7;">
+      <li>Click <strong>"📥 Export JSON + PDF"</strong> on the toolbar</li>
+      <li>Two files download to your <strong>Downloads</strong> folder</li>
+      <li>Open <a href="https://drive.google.com" target="_blank" style="color:var(--blue-deep);">drive.google.com</a> and drag both files in</li>
+      <li>Optional: organize into a folder named <code>Text_to_List_Planner</code></li>
+    </ol>
+    <p style="background:#fff3e0; padding:10px; border-radius:6px; font-size:12px; border-left:4px solid var(--pending); margin-top:14px;">
+      💡 Want one-click Drive upload? Ask Claude in chat: <em>"Add real Google Drive OAuth to my offline planner"</em> — I'll guide you through the Cloud Console setup.
+    </p>
+  `);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MODAL
+// ═══════════════════════════════════════════════════════════════
+function showModal(title, body) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').innerHTML = body;
+  document.getElementById('modal').classList.add('active');
+}
+function closeModal() { document.getElementById('modal').classList.remove('active'); }
+
+// ═══════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════
+function escapeHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUTO-RESUME SESSION on reload
+// ═══════════════════════════════════════════════════════════════
+(function init() {
+  try {
+    const saved = sessionStorage.getItem('planner_session');
+    if (saved && ALLOWLIST[saved]) {
+      currentEmail = saved;
+      loginSuccess();
+    }
+  } catch(e) {}
+})();
+</script>
+</body>
+</html>
